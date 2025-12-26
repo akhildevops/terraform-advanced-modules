@@ -1,0 +1,81 @@
+pipeline {
+  agent { label 'windows' }
+
+  environment {
+    TF_WORKING_DIR = 'aws/env/dev'
+  }
+
+  stages {
+
+    stage('Checkout') {
+      steps {
+        git branch: 'main',
+            url: 'https://github.com/akhildevops/terraform-advanced-modules.git',
+            credentialsId: 'github-pat'
+      }
+    }
+
+    stage('Terraform Init & Plan') {
+      steps {
+        withCredentials([usernamePassword(
+          credentialsId: 'aws-creds',
+          usernameVariable: 'AWS_ACCESS_KEY_ID',
+          passwordVariable: 'AWS_SECRET_ACCESS_KEY'
+        )]) {
+          dir("${TF_WORKING_DIR}") {
+            bat '''
+              set AWS_ACCESS_KEY_ID=%AWS_ACCESS_KEY_ID%
+              set AWS_SECRET_ACCESS_KEY=%AWS_SECRET_ACCESS_KEY%
+
+              terraform --version
+              terraform init -input=false
+              terraform plan -input=false -var="public_key=yes" -out=tfplan
+            '''
+          }
+        }
+      }
+    }
+
+    stage('Apply') {
+      steps {
+        input message: "Proceed with terraform apply?"
+
+        withCredentials([usernamePassword(
+          credentialsId: 'aws-creds',
+          usernameVariable: 'AWS_ACCESS_KEY_ID',
+          passwordVariable: 'AWS_SECRET_ACCESS_KEY'
+        )]) {
+           dir("${TF_WORKING_DIR}") {
+            bat '''
+              set AWS_ACCESS_KEY_ID=%AWS_ACCESS_KEY_ID%
+              set AWS_SECRET_ACCESS_KEY=%AWS_SECRET_ACCESS_KEY%
+
+              terraform apply -input=false -auto-approve tfplan
+            '''
+          }
+        }
+      }
+    }
+
+    stage('Auto Destroy') {
+      steps {
+        echo "Terraform Destroy will now run automatically..."
+
+        withCredentials([usernamePassword(
+          credentialsId: 'aws-creds',
+          usernameVariable: 'AWS_ACCESS_KEY_ID',
+          passwordVariable: 'AWS_SECRET_ACCESS_KEY'
+        )]) {
+          dir("${TF_WORKING_DIR}") {
+            bat '''
+              set AWS_ACCESS_KEY_ID=%AWS_ACCESS_KEY_ID%
+              set AWS_SECRET_ACCESS_KEY=%AWS_SECRET_ACCESS_KEY%
+
+              terraform destroy -input=false -var="public_key=yes" -auto-approve
+            '''
+          }
+        }
+      }
+    }
+  }
+}
