@@ -1,0 +1,76 @@
+pipeline {
+  agent { label 'windows' }
+
+  environment {
+    TF_WORKING_DIR = 'aws/env/dev'
+  }
+
+  options {
+    timeout(time: 30, unit: 'MINUTES')
+  }
+
+  stages {
+
+    stage('Checkout') {
+      steps {
+        git branch: 'main',
+            url: 'https://github.com/akhildevops/terraform-advanced-modules.git',
+            credentialsId: 'github-pat'
+      }
+    }
+
+    stage('Terraform Init & Plan') {
+      steps {
+        withCredentials([[
+          $class: 'AmazonWebServicesCredentialsBinding',
+          credentialsId: 'aws-creds'
+        ]]) {
+          dir("${TF_WORKING_DIR}") {
+            bat '''
+              terraform --version
+              terraform init -reconfigure -input=false
+              terraform plan -input=false -var="public_key=yes" -out=tfplan
+            '''
+          }
+        }
+      }
+    }
+
+    stage('Apply') {
+      steps {
+        input message: "Proceed with terraform apply?"
+
+        withCredentials([[
+          $class: 'AmazonWebServicesCredentialsBinding',
+          credentialsId: 'aws-creds'
+        ]]) {
+          dir("${TF_WORKING_DIR}") {
+            bat '''
+              terraform apply -input=false -auto-approve tfplan
+            '''
+          }
+        }
+      }
+    }
+
+    stage('Auto Destroy') {
+      when {
+        expression { env.BRANCH_NAME == 'dev' }
+      }
+      steps {
+        echo "Terraform Destroy running for DEV environment"
+
+        withCredentials([[
+          $class: 'AmazonWebServicesCredentialsBinding',
+          credentialsId: 'aws-creds'
+        ]]) {
+          dir("${TF_WORKING_DIR}") {
+            bat '''
+              terraform destroy -input=false -var="public_key=yes" -auto-approve
+            '''
+          }
+        }
+      }
+    }
+  }
+}
